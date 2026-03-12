@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quote | Execution Quality Analyzer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    body { background: #060912; }
+
+    .glass { background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.07); }
+    .gradient-border {
+      background: linear-gradient(#060912, #060912) padding-box,
+                  linear-gradient(135deg, #0ea5e9 0%, #7c3aed 100%) border-box;
+      border: 1px solid transparent;
+    }
+    .gradient-border-subtle {
+      background: linear-gradient(#0c111f, #0c111f) padding-box,
+                  linear-gradient(135deg, rgba(14,165,233,0.4) 0%, rgba(124,58,237,0.4) 100%) border-box;
+      border: 1px solid transparent;
+    }
+    input { background: rgba(255,255,255,0.03) !important; transition: border-color 0.2s, box-shadow 0.2s; }
+    input:focus { outline: none !important; border-color: #0ea5e9 !important; box-shadow: 0 0 0 3px rgba(14,165,233,0.12) !important; }
+    input::placeholder { color: #2d3f55; }
+
+    .tag { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; }
+    .tag-buy   { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.25); }
+    .tag-sell  { background: rgba(239,68,68,0.12);  color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
+    .tag-taker { background: rgba(249,115,22,0.12); color: #fb923c; border: 1px solid rgba(249,115,22,0.25); }
+    .tag-maker { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.25); }
+    .tag-info  { background: rgba(14,165,233,0.12); color: #38bdf8; border: 1px solid rgba(14,165,233,0.25); }
+    .tag-exact { background: rgba(16,185,129,0.1);  color: #6ee7b7; border: 1px solid rgba(16,185,129,0.2); font-size:9px; }
+    .tag-approx{ background: rgba(245,158,11,0.1);  color: #fcd34d; border: 1px solid rgba(245,158,11,0.2); font-size:9px; }
+
+    @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+    .fade-up { animation: fadeUp 0.45s ease forwards; }
+    @keyframes bounce-dot { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+    .bounce-dot { animation: bounce-dot 1.2s infinite ease-in-out; }
+
+    .cmp-row:hover td { background: rgba(255,255,255,0.015); }
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
+    .bar-anim { transition: width 1.1s cubic-bezier(0.4,0,0.2,1); }
+
+    .derived-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(14,165,233,0.08); border: 1px solid rgba(14,165,233,0.2);
+      border-radius: 6px; padding: 3px 8px; font-size: 11px; color: #7dd3fc;
+    }
+    .derived-pill .label { color: #475569; font-size: 10px; }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen">
+
+<!-- HEADER -->
+<header class="border-b border-white/[0.05] px-6 py-4 sticky top-0 z-30 backdrop-blur-xl bg-[#060912]/80">
+  <div class="max-w-4xl mx-auto flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-violet-600 flex items-center justify-center font-black text-sm select-none">Q</div>
+      <div>
+        <div class="font-semibold text-white text-sm leading-none">Quote</div>
+        <div class="text-[10px] text-slate-500 leading-none mt-0.5 tracking-wide">Execution Analyzer</div>
+      </div>
+      <div class="w-px h-5 bg-white/10 mx-1"></div>
+      <span class="text-slate-500 text-xs hidden sm:block">Hyperliquid Execution Quality Tool</span>
+    </div>
+    <a href="https://quote.xyz" target="_blank" rel="noopener"
+       class="text-xs text-sky-400 hover:text-sky-300 transition-colors flex items-center gap-1">
+      Try Quote <span>→</span>
+    </a>
+  </div>
+</header>
+
+<!-- MAIN -->
+<main class="max-w-4xl mx-auto px-4 sm:px-6 py-10">
+
+  <!-- Hero -->
+  <div class="text-center mb-10">
+    <h1 class="text-3xl sm:text-4xl font-bold mb-3 bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+      How much did poor execution cost?
+    </h1>
+    <p class="text-slate-400 text-sm max-w-xl mx-auto leading-relaxed">
+      Paste a wallet and a Hyperliquid transaction hash. Everything else — asset, size, direction,
+      timestamps — is derived automatically from on-chain fills.
+    </p>
+  </div>
+
+  <!-- Input Card -->
+  <div class="gradient-border rounded-2xl p-6 mb-8" style="box-shadow:0 0 40px rgba(14,165,233,0.06)">
+    <div class="space-y-4 mb-5">
+
+      <!-- Address -->
+      <div>
+        <label class="text-xs text-slate-500 font-medium mb-1.5 block">Wallet Address</label>
+        <input id="inp-address" type="text" placeholder="0x..."
+          class="w-full border border-slate-800 rounded-xl px-4 py-3 text-sm mono text-slate-200" />
+      </div>
+
+      <!-- TX Hash -->
+      <div>
+        <label class="text-xs text-slate-500 font-medium mb-1.5 block">
+          Transaction Hash
+          <span class="text-slate-700 font-normal ml-1">— from the Hyperliquid explorer</span>
+        </label>
+        <input id="inp-txhash" type="text"
+          placeholder="0x3601105fda18c148377a0436d918c70202fe0045751be01ad9c9bbb2991c9b32"
+          class="w-full border border-slate-800 rounded-xl px-4 py-3 text-sm mono text-slate-200" />
+      </div>
+
+    </div>
+
+    <button id="btn-analyze" onclick="analyze()"
+      class="w-full py-3.5 bg-gradient-to-r from-sky-600 to-violet-600 hover:from-sky-500 hover:to-violet-500 rounded-xl font-semibold text-sm transition-all active:scale-[0.99] shadow-lg shadow-sky-900/20">
+      Analyze Execution Quality
+    </button>
+  </div>
+
+  <!-- Loading -->
+  <div id="ui-loading" class="hidden text-center py-16">
+    <div class="inline-flex flex-col items-center gap-5 text-slate-400">
+      <div class="flex gap-1.5">
+        <div class="w-2 h-2 rounded-full bg-sky-400 bounce-dot" style="animation-delay:0s"></div>
+        <div class="w-2 h-2 rounded-full bg-sky-400 bounce-dot" style="animation-delay:0.15s"></div>
+        <div class="w-2 h-2 rounded-full bg-sky-400 bounce-dot" style="animation-delay:0.3s"></div>
+      </div>
+      <span id="ui-loading-msg" class="text-sm">Fetching fill data...</span>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div id="ui-error"
+    class="hidden bg-red-950/40 border border-red-800/40 rounded-xl p-4 text-red-300 text-sm mono mb-6"></div>
+
+  <!-- Results -->
+  <div id="ui-results" class="hidden space-y-5"></div>
+
+</main>
+
+<footer class="text-center py-8 text-slate-700 text-xs px-6 max-w-4xl mx-auto">
+  Fill data and candle prices from Hyperliquid HyperCore public REST API.
+  Book-walk slippage is exact from fills. Spread cost uses 1-min candle close as reference price.
+  Orderbook simulations use a live snapshot — not historical conditions. Use as a directional estimate.
+</footer>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════════════════════
+const HL_API    = 'https://api.hyperliquid.xyz/info';
+
+// Optional: HypeRPC orderbook endpoint for historical l2Book data (up to 40 days back).
+// Requires a separate 'orderbook' endpoint from https://hyperpc.app — not the EVM RPC key.
+// Format: 'https://orderbook-eu.hyperpc.app/YOUR_ORDERBOOK_KEY'
+// Leave null to always use the live book snapshot.
+const HYPERPC_ORDERBOOK = null;
+
+const FEE_TAKER = 0.00045;  // 4.5 bps
+const FEE_MAKER = 0.0001;   // 1.0 bps
+const FEE_DELTA = FEE_TAKER - FEE_MAKER;
+
+
+// ═══════════════════════════════════════════════════════════════
+//  API
+// ═══════════════════════════════════════════════════════════════
+async function hlPost(body) {
+  const r = await fetch(HL_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) throw new Error(`Hyperliquid API ${r.status}: ${r.statusText}`);
+  return r.json();
+}
+
+// Fetch the last fully-closed 1-min candle before a timestamp.
+// Returns { open, high, low, close, time } where time = candle open time (T).
+async function fetchCandleAt(coin, timeMs) {
+  // Fetch a 3-minute window so at least one fully-closed candle is always available.
+  // (e.g. a trade at T=01:30 needs the 00:00–01:00 candle; fetching 3 min back guarantees it.)
+  const start = timeMs - 180000;
+  const end   = timeMs + 60000;
+  const candles = await hlPost({
+    type: 'candleSnapshot',
+    req: { coin, interval: '1m', startTime: start, endTime: end }
+  });
+  if (!Array.isArray(candles) || candles.length === 0) return null;
+
+  // Candle fields: T = open time (ms), close time = T + 60000, o, h, l, c, v.
+  // Require the candle to be FULLY CLOSED before the trade: T + 60000 <= timeMs.
+  // This avoids selecting a still-open candle whose close price is not yet final.
+  const before = candles.filter(c => c.T + 60000 <= timeMs);
+  if (before.length === 0) return candles[0]; // fallback: earliest available candle
+  const candle = before[before.length - 1];
+  return {
+    open:  parseFloat(candle.o),
+    high:  parseFloat(candle.h),
+    low:   parseFloat(candle.l),
+    close: parseFloat(candle.c),
+    time:  candle.T
+  };
+}
+
+
+// Fetch the l2Book at a historical timestamp via HypeRPC's orderbook endpoint.
+// Requires HYPERPC_ORDERBOOK to be set (orderbook-type endpoint key from hyperpc.app).
+// Returns book data in the same shape as hlPost({type:'l2Book',...}), or null on failure.
+async function fetchHistoricalBook(coin, timestampMs) {
+  if (!HYPERPC_ORDERBOOK) return null;
+  const FORTY_DAYS = 40 * 24 * 3600 * 1000;
+  if (Date.now() - timestampMs > FORTY_DAYS) return null; // outside retention window
+  try {
+    const r = await fetch(HYPERPC_ORDERBOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'l2Book', coin, timestamp: timestampMs })
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data?.levels?.[0]?.length || !data?.levels?.[1]?.length) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  FILL MATCHING
+// ═══════════════════════════════════════════════════════════════
+
+// Given raw fills array and a tx hash, return all fills belonging to that order.
+// Hyperliquid fills carry `hash` = the action hash of the order that produced them.
+// All fills from the same order share the same hash AND the same oid.
+function findFillsByHash(fills, txHash) {
+  const clean = txHash.toLowerCase();
+  const matched = fills.filter(f => f.hash && f.hash.toLowerCase() === clean);
+  if (matched.length > 0) return matched;
+
+  // Fallback: some fills may share oid with any matched fill — handles edge cases
+  // where only one partial fill carries the hash
+  return [];
+}
+
+// Group an array of fills (same order) into an order summary object
+function summariseOrder(fills) {
+  const sorted   = [...fills].sort((a, b) => a.time - b.time);
+  const totalSz  = sorted.reduce((s, f) => s + parseFloat(f.sz), 0);
+  const totalNtl = sorted.reduce((s, f) => s + parseFloat(f.px) * parseFloat(f.sz), 0);
+  const fees     = sorted.reduce((s, f) => s + Math.abs(parseFloat(f.fee)), 0);
+  // takerPct by notional weight — a single large maker fill dominates a many tiny taker fills
+  const takerNtl = sorted.filter(f => f.crossed)
+                         .reduce((s, f) => s + parseFloat(f.px) * parseFloat(f.sz), 0);
+  return {
+    coin:       sorted[0].coin,
+    side:       sorted[0].side,
+    dir:        sorted[0].dir,
+    oid:        sorted[0].oid,
+    fills:      sorted,
+    totalSz, totalNtl,
+    vwap:       totalNtl / totalSz,
+    fees,
+    firstFill:  sorted[0],
+    lastFill:   sorted[sorted.length - 1],
+    timeSpanMs: sorted[sorted.length - 1].time - sorted[0].time,
+    takerPct:   totalNtl > 0 ? (takerNtl / totalNtl) * 100 : 0,
+    hashes:     [...new Set(sorted.map(f => f.hash))]
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  ORDERBOOK SIMULATION  (uses LIVE book — current conditions)
+// ═══════════════════════════════════════════════════════════════
+function simMarketOrder(book, isBuy, targetNotionalUsd) {
+  const levels  = isBuy ? book.levels[1] : book.levels[0];
+  let remaining = targetNotionalUsd;
+  let totalFilled = 0, totalSize = 0;
+  const consumed = [];
+  for (const lvl of levels) {
+    if (remaining < 1e-6) break;
+    const px   = parseFloat(lvl.px);
+    const sz   = parseFloat(lvl.sz);
+    const avail = px * sz;
+    const take  = Math.min(remaining, avail);
+    consumed.push({ px, sz: take / px, notional: take });
+    totalFilled += take;
+    totalSize   += take / px;
+    remaining   -= take;
+  }
+  const vwap = totalSize > 0 ? totalFilled / totalSize : 0;
+  return { vwap, totalFilled, totalSize, levels: consumed,
+           fillPct: (totalFilled / targetNotionalUsd) * 100, shortfall: remaining };
+}
+
+// TWAP: simulate 1/N slice on current book (assumes full replenishment between slices).
+// Impact measured vs arrival price (best ask for buy, best bid for sell) — NOT the mid.
+// Using mid would inflate each slice by half the spread, double-counting that cost.
+function simTwap(book, isBuy, totalNtl, numSlices) {
+  const sliceNtl  = totalNtl / numSlices;
+  // Arrival price = best price available at the moment of execution
+  const arrivalPx = isBuy ? parseFloat(book.levels[1][0].px) : parseFloat(book.levels[0][0].px);
+  const slice     = simMarketOrder(book, isBuy, sliceNtl);
+  const sliceBps  = Math.abs(slice.vwap - arrivalPx) / arrivalPx * 10000;
+  return {
+    numSlices,
+    sliceNtl,
+    sliceVwap:    slice.vwap,
+    sliceBps,
+    totalCostUsd: (sliceBps / 10000) * totalNtl   // same bps per slice, full notional
+  };
+}
+
+function getMid(book) {
+  return (parseFloat(book.levels[0][0].px) + parseFloat(book.levels[1][0].px)) / 2;
+}
+function getSpread(book) {
+  const bid = parseFloat(book.levels[0][0].px);
+  const ask = parseFloat(book.levels[1][0].px);
+  const mid = (bid + ask) / 2;
+  return { bid, ask, mid, abs: ask - bid, bps: (ask - bid) / mid * 10000 };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  METRICS  — what's exact vs approximate is clearly flagged
+// ═══════════════════════════════════════════════════════════════
+function calcMetrics(order, book, bookSource, bookFallback, candle, assetCtx) {
+  const isBuy = order.side === 'B';
+  const sp    = getSpread(book);
+  const firstPx = parseFloat(order.firstFill.px);
+  const lastPx  = parseFloat(order.lastFill.px);
+
+  // ── Reference price ──────────────────────────────────────────
+  // Best available: 1-min candle CLOSE from the minute BEFORE the trade.
+  // This is a real historical price from the Hyperliquid public REST API.
+  // Accuracy: ±0.5× (1-min range) — much better than using current spread.
+  let refPrice, refSource;
+  if (candle) {
+    refPrice  = candle.close;
+    refSource = 'candleClose'; // close of 1-min candle before the trade
+  } else {
+    // Fallback: first fill is the best ask (buy) or best bid (sell).
+    // Mid ≈ firstFill ∓ ½ currentSpread (uses current spread as proxy — less accurate).
+    refPrice  = isBuy ? firstPx - sp.abs / 2 : firstPx + sp.abs / 2;
+    refSource = 'firstFillApprox';
+  }
+
+  // Consistent notional base for all bps calculations → components are perfectly additive:
+  //   spreadBps + walkBps = slipBps   (when refSource = candleClose)
+  //   slipBps   + feeBps  = allInBps
+  const refNotional = refPrice * order.totalSz;
+
+  // ── EXACT metrics (from fills only, no approximation) ─────────
+  // Book-walk: how much VWAP drifted from the first fill level.
+  // This is the pure cost of consuming multiple orderbook levels.
+  const walkPerUnit = Math.abs(order.vwap - firstPx);
+  const walkUsd     = walkPerUnit * order.totalSz;
+  const walkBps     = (walkPerUnit / refPrice) * 10000;   // use refPrice for additivity
+
+  // Fees: exact from fill data
+  const feeUsd  = order.fees;
+  const feeBps  = (feeUsd / refNotional) * 10000;         // consistent base
+
+  // ── APPROXIMATE metrics (need reference price) ─────────────────
+  // Total slippage = VWAP vs reference price.
+  // Sign convention: positive = slippage (bad), negative = price improvement (good).
+  // NOT clamped to 0 — price improvement on maker fills is real and should show.
+  const slipPerUnit = isBuy
+    ? order.vwap - refPrice      // bought above reference → positive = cost
+    : refPrice - order.vwap;     // sold below reference  → positive = cost
+  const slipUsd = slipPerUnit * order.totalSz;
+  const slipBps = slipPerUnit / refPrice * 10000;
+
+  // ── Spread cost (true bid-ask crossing cost) ────────────────────
+  // Uses live half-spread as proxy for the spread at fill time (APPROX).
+  // Taker: pays halfSpread (+). Maker: receives halfSpread (−, shown as saving).
+  // This is consistent with the "Live Spread" figure displayed in the summary.
+  const halfSpreadBps = sp.bps / 2;
+  const spreadBps     = (2 * order.takerPct / 100 - 1) * halfSpreadBps;
+  const spreadUsd     = (spreadBps / 10000) * refNotional;
+
+  // ── Pre-fill price drift ─────────────────────────────────────────
+  // Price moved between the candle-close reference and the first fill.
+  // = (firstFill vs refPrice) minus the spread component already captured above.
+  // Residual drift is pure market movement — not caused by order execution.
+  const firstFillPremium = isBuy ? firstPx - refPrice : refPrice - firstPx;
+  const driftBps         = firstFillPremium / refPrice * 10000 - spreadBps;
+  const driftUsd         = (driftBps / 10000) * refNotional;
+
+  // All-in cost vs reference (signed — negative means profitable vs reference after fees)
+  const allInUsd = slipUsd + feeUsd;
+  const allInBps = (allInUsd / refNotional) * 10000;      // consistent base
+
+  // ── Live orderbook simulations (current market, NOT historical) ─
+  const simFull = simMarketOrder(book, isBuy, order.totalNtl);
+  const twap5   = simTwap(book, isBuy, order.totalNtl, 5);
+  const twap10  = simTwap(book, isBuy, order.totalNtl, 10);
+  const twap20  = simTwap(book, isBuy, order.totalNtl, 20);
+
+  // Impact vs arrival price (best ask for buy / best bid for sell), NOT the mid.
+  // Mid would inject half the spread into the sim cost, making it look artificially expensive.
+  const arrivalPx  = isBuy ? sp.ask : sp.bid;
+  const simFullBps = Math.abs(simFull.vwap - arrivalPx) / arrivalPx * 10000;
+  const simFullUsd = (simFullBps / 10000) * order.totalNtl;
+
+  // All-in for each strategy (impact + taker fee, except limit uses maker)
+  const mktNowUsd  = simFullUsd + order.totalNtl * FEE_TAKER;
+  const mktNowBps  = simFullBps + FEE_TAKER * 10000;
+  const t5Usd      = twap5.totalCostUsd  + order.totalNtl * FEE_TAKER;
+  const t5Bps      = twap5.sliceBps      + FEE_TAKER * 10000;
+  const t10Usd     = twap10.totalCostUsd + order.totalNtl * FEE_TAKER;
+  const t10Bps     = twap10.sliceBps     + FEE_TAKER * 10000;
+  const t20Usd     = twap20.totalCostUsd + order.totalNtl * FEE_TAKER;
+  const t20Bps     = twap20.sliceBps     + FEE_TAKER * 10000;
+  const limitUsd   = order.totalNtl * FEE_MAKER;
+  const limitBps   = FEE_MAKER * 10000;
+
+  // ── Quote estimate ─────────────────────────────────────────────
+  // Cap savings to (allInUsd - limitUsd): Quote can't improve beyond maker-fee-only baseline.
+  // Clamp components to 0: can't save a negative cost.
+  // Use combined arrival cost (drift + spread = firstFill vs ref) for quote savings,
+  // which equals the old "spreadUsd" value and preserves the model's behaviour.
+  const rawQuoteSavings = (Math.max(walkUsd, 0) * 0.60) + (Math.max(driftUsd + spreadUsd, 0) * 0.70) + (order.totalNtl * FEE_DELTA);
+  const quoteSaved = Math.min(rawQuoteSavings, Math.max(allInUsd - limitUsd, 0));
+  const quoteUsd   = Math.max(allInUsd - quoteSaved, limitUsd);
+  const quoteBps   = (quoteUsd / order.totalNtl) * 10000;
+
+  // ── Market context ─────────────────────────────────────────────
+  const dayVol = assetCtx ? parseFloat(assetCtx.dayNtlVlm || 0) : 0;
+  const volPct = dayVol > 0 ? (order.totalNtl / dayVol) * 100 : null;
+
+  const score = scoreExecution(slipBps, order.takerPct, volPct);
+
+  return {
+    // Identity
+    asset: order.coin, side: isBuy ? 'LONG' : 'SHORT', dir: order.dir, isBuy,
+    bookSource, bookFallback,
+    // Trade facts (EXACT)
+    totalSz: order.totalSz, totalNtl: order.totalNtl,
+    vwap: order.vwap, firstPx, lastPx,
+    numFills: order.fills.length, timeSpanSec: order.timeSpanMs / 1000,
+    takerPct: order.takerPct, execTimeMs: order.firstFill.time,
+    hashes: order.hashes,
+    // Reference
+    refPrice, refSource, candle,
+    // Live market
+    spread: sp, currentMid: sp.mid, dayVol, volPct,
+    // EXACT cost components
+    walkUsd, walkBps, feeUsd, feeBps,
+    // APPROXIMATE cost components
+    driftUsd, driftBps,           // pre-fill price drift (candle close → first fill)
+    spreadUsd, spreadBps,         // true spread cost (½ live spread × taker fraction)
+    slipUsd, slipBps, allInUsd, allInBps,
+    // Simulations (current book)
+    simFull, simFullBps, simFullUsd,
+    twap5, twap10, twap20,
+    mktNowUsd, mktNowBps,
+    t5Usd, t5Bps, t10Usd, t10Bps, t20Usd, t20Bps,
+    limitUsd, limitBps,
+    // Quote
+    quoteSaved, quoteUsd, quoteBps,
+    score
+  };
+}
+
+function scoreExecution(slipBps, takerPct, volPct) {
+  let g = slipBps < 2 ? 'A' : slipBps < 5 ? 'B' : slipBps < 12 ? 'C' : slipBps < 25 ? 'D' : 'F';
+  if (takerPct >= 95 && volPct !== null && volPct > 0.5)
+    g = { A:'B', B:'C', C:'D', D:'F', F:'F' }[g];
+  return {
+    grade: g,
+    desc: { A:'Excellent — near-optimal execution', B:'Good — minor room for improvement',
+            C:'Average — meaningful costs left on the table',
+            D:'Poor — significant execution losses', F:'Very Poor — major execution inefficiency' }[g]
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  FORMATTING
+// ═══════════════════════════════════════════════════════════════
+const $ = {
+  usd:  (v, d=0) => '$' + Math.abs(v).toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d}),
+  bps:  (v, d=1) => v.toFixed(d) + ' bps',
+  pct:  (v, d=2) => v.toFixed(d) + '%',
+  num:  (v, d=4) => parseFloat(v.toFixed(d)).toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:d}),
+  px:   (v) => {
+    if (v >= 10000) return '$' + v.toLocaleString('en-US', {maximumFractionDigits:1});
+    if (v >= 1000)  return '$' + v.toLocaleString('en-US', {maximumFractionDigits:2});
+    if (v >= 1)     return '$' + v.toFixed(4);
+    return '$' + v.toFixed(6);
+  },
+  ts:   (ms) => new Date(ms).toLocaleString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
+  dur:  (sec) => sec < 1 ? '<1s' : sec < 60 ? sec.toFixed(0)+'s' : sec < 3600 ? (sec/60).toFixed(1)+' min' : (sec/3600).toFixed(2)+'h',
+  hash: (h) => h ? h.slice(0,8)+'…'+h.slice(-6) : '',
+  vol:  (v) => v>=1e9 ? (v/1e9).toFixed(2)+'B' : v>=1e6 ? (v/1e6).toFixed(1)+'M' : v>=1e3 ? (v/1e3).toFixed(0)+'K' : v.toFixed(0)
+};
+
+function barHTML(pct, cls='bg-orange-500') {
+  return `<div class="h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
+    <div class="h-full ${cls} rounded-full bar-anim" style="width:0%" data-bar="${Math.min(pct,100)}%"></div>
+  </div>`;
+}
+function exactTag()  { return `<span class="tag tag-exact">EXACT</span>`; }
+function approxTag() { return `<span class="tag tag-approx">APPROX</span>`; }
+
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════
+function renderResults(m) {
+  const el = document.getElementById('ui-results');
+  el.innerHTML = '';
+  el.classList.remove('hidden');
+  [buildSummary(m), buildScore(m), buildCostBreakdown(m),
+   buildComparison(m), buildBookAnalysis(m), buildQuoteCTA(m)
+  ].forEach((html, i) => {
+    const d = document.createElement('div');
+    d.innerHTML = html;
+    d.style.cssText = `animation:fadeUp 0.45s ease ${i*0.07}s forwards;opacity:0`;
+    el.appendChild(d);
+  });
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll('[data-bar]').forEach(b => { b.style.width = b.dataset.bar; });
+  }));
+}
+
+function card(body) { return `<div class="glass rounded-2xl p-5 sm:p-6">${body}</div>`; }
+function sh(title, sub='') {
+  return `<div class="mb-4"><div class="text-sm font-semibold text-slate-200">${title}</div>
+    ${sub ? `<div class="text-xs text-slate-500 mt-0.5">${sub}</div>` : ''}</div>`;
+}
+
+// ── Summary ────────────────────────────────────────────────────
+function buildSummary(m) {
+  const sideTag = m.isBuy ? '<span class="tag tag-buy">LONG</span>' : '<span class="tag tag-sell">SHORT</span>';
+  const ordType = m.takerPct===100 ? '<span class="tag tag-taker ml-1">MARKET ORDER</span>'
+    : m.takerPct===0 ? '<span class="tag tag-maker ml-1">LIMIT ORDER</span>'
+    : `<span class="tag tag-taker ml-1">${m.takerPct.toFixed(0)}% TAKER</span>`;
+  const fillDur = m.numFills > 1 ? ` · filled over ${$.dur(m.timeSpanSec)}` : '';
+  const volStr  = m.volPct !== null
+    ? `<div class="text-xs text-slate-500 mt-1">Volume participation: <span class="mono text-slate-300">${$.pct(m.volPct, 3)}</span> of daily ${m.asset} volume
+        <span class="tag tag-approx ml-1" title="Uses current-day volume from the API, not trade-time volume">APPROX</span>
+        <span class="${m.volPct>1?'text-orange-400':m.volPct>0.3?'text-amber-400':'text-slate-500'}">
+          ${m.volPct>1?'(HIGH — significant impact)':m.volPct>0.3?'(noticeable impact)':'(low impact zone)'}
+        </span></div>` : '';
+
+  // Reference price note
+  const refNote = m.refSource === 'candleClose'
+    ? `<span class="tag tag-exact">EXACT</span> 1-min candle close @ ${$.ts(m.candle.time + 60000)}`
+    : `<span class="tag tag-approx">APPROX</span> firstFill ± ½ current spread (no candle data)`;
+
+  const px4 = m.numFills > 1 ? `
+    <div><div class="text-xs text-slate-500 mb-0.5">First Fill</div><div class="mono text-sm">${$.px(m.firstPx)}</div></div>
+    <div><div class="text-xs text-slate-500 mb-0.5">Last Fill</div><div class="mono text-sm">${$.px(m.lastPx)}</div></div>
+  ` : '';
+
+  return card(`
+    ${sh('Trade Summary', $.ts(m.execTimeMs))}
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <div class="flex flex-wrap items-center gap-1 mb-2">
+          ${sideTag}${ordType}
+          <span class="text-slate-600 text-xs mono ml-1">${m.numFills} fill${m.numFills>1?'s':''}${fillDur}</span>
+        </div>
+        <div class="text-3xl font-bold mono mb-1">
+          ${$.usd(m.totalNtl)} <span class="text-xl font-normal text-slate-400 ml-2">${m.asset}-PERP</span>
+        </div>
+        <div class="flex flex-wrap gap-5 text-sm mt-2">
+          <div><div class="text-xs text-slate-500 mb-0.5">VWAP Fill ${exactTag()}</div><div class="mono font-semibold">${$.px(m.vwap)}</div></div>
+          ${px4}
+          <div><div class="text-xs text-slate-500 mb-0.5">Size ${exactTag()}</div><div class="mono">${$.num(m.totalSz)} ${m.asset}</div></div>
+        </div>
+        ${volStr}
+      </div>
+      <div class="text-right shrink-0">
+        <div class="text-xs text-slate-500 mb-1">Fees paid ${exactTag()}</div>
+        <div class="mono text-orange-400 text-xl font-semibold">${$.usd(m.feeUsd, 2)}</div>
+        <div class="text-xs text-slate-600 mt-0.5">${$.bps(m.feeBps)} rate</div>
+      </div>
+    </div>
+    <div class="mt-5 pt-4 border-t border-white/[0.04] grid grid-cols-2 sm:grid-cols-4 gap-3">
+      ${[
+        { l:'Reference Price', v: $.px(m.refPrice), sub: refNote, mono:true },
+        { l:'Book-walk slippage', v: $.bps(m.walkBps), sub: `${$.usd(m.walkUsd,0)} — EXACT from fills` },
+        { l:'Live Spread', v: $.bps(m.spread.bps), sub: `${$.px(m.spread.abs)} abs (current)` },
+        { l:'Daily Volume', v: m.dayVol>0 ? `$${$.vol(m.dayVol)}` : 'N/A', sub: `${m.asset} <span class="tag tag-approx" title="Current-day volume from API — not trade-time volume">APPROX</span>` }
+      ].map(x => `<div class="bg-white/[0.025] rounded-lg p-3">
+        <div class="text-xs text-slate-500 mb-1">${x.l}</div>
+        <div class="${x.mono?'mono':''} text-sm font-medium">${x.v}</div>
+        <div class="text-[10px] text-slate-600 mt-0.5">${x.sub}</div>
+      </div>`).join('')}
+    </div>
+  `);
+}
+
+// ── Score ──────────────────────────────────────────────────────
+function buildScore(m) {
+  const gc = {
+    A:{t:'text-emerald-400',bg:'bg-emerald-400/10 border border-emerald-400/30'},
+    B:{t:'text-lime-400',   bg:'bg-lime-400/10 border border-lime-400/30'},
+    C:{t:'text-amber-400',  bg:'bg-amber-400/10 border border-amber-400/30'},
+    D:{t:'text-orange-400', bg:'bg-orange-400/10 border border-orange-400/30'},
+    F:{t:'text-red-400',    bg:'bg-red-400/10 border border-red-400/30'}
+  };
+  const c = gc[m.score.grade];
+
+  const metRow = (label, usd, bps, tag, maxBps=30, barCls='bg-orange-500') => {
+    const isImp = bps < -0.05; // price improvement
+    const col   = isImp ? 'text-emerald-400' : bps>20?'text-red-400':bps>8?'text-orange-400':'text-slate-300';
+    const bpsTxt = isImp
+      ? `<span class="text-emerald-400">${$.bps(bps)} <span class="text-[10px]">saved</span></span>`
+      : `<span class="mono ${col}">${$.bps(bps)}</span>`;
+    const usdTxt = isImp
+      ? `<span class="mono text-emerald-400/70">+${$.usd(Math.abs(usd),0)}</span>`
+      : `<span class="mono text-slate-500">${$.usd(usd,0)}</span>`;
+    return `<div>
+      <div class="flex justify-between text-xs mb-1">
+        <span class="text-slate-400 flex items-center gap-1.5">${label} ${tag}</span>
+        <div class="flex gap-3">${bpsTxt}${usdTxt}</div>
+      </div>
+      ${barHTML(Math.min(Math.max((bps/maxBps)*100, 0), 100), isImp ? 'bg-emerald-500/40' : barCls)}
+    </div>`;
+  };
+
+  return card(`
+    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+      <div class="shrink-0">
+        <div class="w-20 h-20 rounded-2xl ${c.bg} flex items-center justify-center">
+          <div class="text-4xl font-black ${c.t}">${m.score.grade}</div>
+        </div>
+        <div class="text-center text-[11px] text-slate-500 mt-1.5">Execution Grade</div>
+      </div>
+      <div class="flex-1 w-full">
+        <div class="text-slate-200 font-medium mb-0.5">${m.score.desc}</div>
+        <div class="text-slate-500 text-xs mb-4">
+          Total slippage vs reference:
+          <span class="mono ${m.slipBps<0?'text-emerald-400':'text-slate-300'}">${$.bps(m.slipBps)}</span>
+          (<span class="mono ${m.slipBps<0?'text-emerald-400':m.slipUsd>2000?'text-red-400':m.slipUsd>500?'text-orange-400':'text-amber-400'}">
+            ${m.slipUsd<0?'+'+$.usd(Math.abs(m.slipUsd),0)+' saved':$.usd(m.slipUsd,0)}
+          </span>)
+        </div>
+        <div class="space-y-3">
+          ${metRow('Pre-fill drift', m.driftUsd, m.driftBps, approxTag(), 15, 'bg-amber-500')}
+          ${metRow('Spread cost', m.spreadUsd, m.spreadBps, approxTag(), 5, 'bg-yellow-600/60')}
+          ${metRow('Book-walk impact', m.walkUsd, m.walkBps, exactTag(), 40, 'bg-orange-500')}
+          ${metRow('Taker fees', m.feeUsd, m.feeBps, exactTag(), 10, 'bg-sky-500/60')}
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+// ── Cost Breakdown ─────────────────────────────────────────────
+function buildCostBreakdown(m) {
+  // Renders a cost row; negative bps/usd = price improvement (shown in green with + prefix)
+  const tr = (label, tag, bps, usd, note='', bold=false) => {
+    const isImprovement = bps < -0.05;
+    const bpsStr = isImprovement
+      ? `<span class="text-emerald-400">${$.bps(bps)}</span>`
+      : `<span>${$.bps(bps)}</span>`;
+    const usdStr = isImprovement
+      ? `<span class="text-emerald-400">+${$.usd(Math.abs(usd),0)} <span class="text-[10px] font-normal opacity-70">saved</span></span>`
+      : `<span class="${bold?'text-red-400':'text-orange-300'}">−${$.usd(usd,0)}</span>`;
+    return `
+    <tr class="cmp-row">
+      <td class="py-3 pr-3 leading-tight">
+        <span class="text-sm text-slate-400">${label}</span>
+        <span class="ml-1.5">${tag}</span>
+      </td>
+      <td class="py-3 text-sm mono text-right text-slate-300">${bpsStr}</td>
+      <td class="py-3 text-sm mono font-medium text-right">${usdStr}</td>
+      <td class="py-3 text-xs text-slate-600 pl-4 hidden sm:table-cell leading-tight">${note}</td>
+    </tr>`;
+  };
+
+  const refLabel = m.refSource==='candleClose'
+    ? `1-min candle close @ ${$.ts(m.candle.time + 60000)}`
+    : 'firstFill ± ½ live spread (fallback)';
+
+  return card(`
+    ${sh('Execution Cost Breakdown', `Reference price: ${$.px(m.refPrice)} (${refLabel})`)}
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead><tr class="border-b border-white/[0.05]">
+          <th class="pb-2 text-left text-[11px] text-slate-600 font-medium">Component</th>
+          <th class="pb-2 text-right text-[11px] text-slate-600 font-medium">Bps</th>
+          <th class="pb-2 text-right text-[11px] text-slate-600 font-medium">USD cost</th>
+          <th class="pb-2 text-left pl-4 text-[11px] text-slate-600 font-medium hidden sm:table-cell">Note</th>
+        </tr></thead>
+        <tbody class="divide-y divide-white/[0.03]">
+          ${tr('Pre-fill drift', approxTag(), m.driftBps, m.driftUsd,
+               `Price moved ref→firstFill: ${$.px(m.refPrice)} → ${$.px(m.firstPx)}`)}
+          ${tr('Spread cost', approxTag(), m.spreadBps, m.spreadUsd,
+               `${m.takerPct < 5 ? 'Maker: received' : m.takerPct > 95 ? 'Taker: paid' : 'Mixed:'} ½ live spread (${$.bps(m.spread.bps / 2)})`)}
+          ${tr('Book-walk impact', exactTag(), m.walkBps, m.walkUsd,
+               `VWAP (${$.px(m.vwap)}) vs firstFill (${$.px(m.firstPx)}) — exact from fills`)}
+          ${tr('Taker fee', exactTag(), m.feeBps, m.feeUsd,
+               `From fill data: ${(m.feeUsd/m.totalNtl*100).toFixed(3)}% of notional`)}
+          <tr class="border-t border-white/[0.08]">
+            <td class="pt-3 pb-2 text-sm font-bold text-slate-100">Total all-in</td>
+            <td class="pt-3 pb-2 text-sm mono font-bold text-right ${m.allInBps<0?'text-emerald-400':'text-red-400'}">${$.bps(m.allInBps)}</td>
+            <td class="pt-3 pb-2 text-sm mono font-bold text-right ${m.allInBps<0?'text-emerald-400':'text-red-400'}">
+              ${m.allInUsd<0?`+${$.usd(Math.abs(m.allInUsd),0)} <span class="text-xs font-normal opacity-70">profit vs ref</span>`:`−${$.usd(m.allInUsd,0)}`}
+            </td>
+            <td class="hidden sm:table-cell"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-4 pt-4 border-t border-white/[0.04] flex flex-wrap gap-4 text-[11px]">
+      <div class="flex items-center gap-1.5 text-slate-500">${exactTag()} <span>Computed directly from fill data — no assumptions</span></div>
+      <div class="flex items-center gap-1.5 text-slate-500">${approxTag()} <span>Requires reference price from candle data</span></div>
+    </div>
+  `);
+}
+
+// ── Comparison ─────────────────────────────────────────────────
+function buildComparison(m) {
+  const bookLabel = m.bookSource === 'historical' ? 'trade-time book' : 'current book';
+  const strats = [
+    { name:'This execution (actual)', bps:m.allInBps,  usd:m.allInUsd,  cls:'text-orange-400 font-semibold', bar:'bg-orange-500', actual:true },
+    { name:'Market order',            bps:m.mktNowBps, usd:m.mktNowUsd, cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
+    { name:'TWAP ×5 slices',          bps:m.t5Bps,     usd:m.t5Usd,     cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
+    { name:'TWAP ×10 slices',         bps:m.t10Bps,    usd:m.t10Usd,    cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
+    { name:'TWAP ×20 slices',         bps:m.t20Bps,    usd:m.t20Usd,    cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
+    { name:'Passive limit order',      bps:m.limitBps,  usd:m.limitUsd,  cls:'text-slate-300', bar:'bg-slate-600', note:'execution risk' },
+    { name:'⚡ Quote execution',       bps:m.quoteBps,  usd:m.quoteUsd,  cls:'text-sky-300 font-semibold',  bar:'bg-sky-500', quote:true }
+  ];
+  const maxUsd  = Math.max(...strats.map(s=>s.usd));
+  const best    = strats.filter(s=>!s.actual).reduce((b,s)=>s.usd<b.usd?s:b);
+
+  const rows = strats.map(s => {
+    const isBest  = s===best;
+    const savings = m.allInUsd - s.usd;
+    const savHtml = s.actual ? '—'
+      : savings>0 ? `<span class="text-emerald-400 font-medium">saves ${$.usd(savings,0)}</span>`
+      : `<span class="text-red-400">${$.usd(-savings,0)} more</span>`;
+
+    return `<tr class="cmp-row ${isBest?'bg-emerald-400/[0.025]':''}">
+      <td class="py-2.5 pr-3">
+        <div class="flex flex-wrap items-center gap-1.5">
+          ${isBest?`<span class="tag" style="background:rgba(16,185,129,0.12);color:#34d399;border-color:rgba(16,185,129,0.2);font-size:9px">BEST</span>`:''}
+          ${s.quote?'<span class="inline-block w-2 h-2 rounded-full bg-sky-400"></span>':''}
+          <span class="text-sm ${s.cls}">${s.name}</span>
+          ${s.note?`<span class="text-[10px] text-slate-600">(${s.note})</span>`:''}
+        </div>
+      </td>
+      <td class="py-2.5 text-right mono text-sm text-slate-400">${$.bps(s.bps)}</td>
+      <td class="py-2.5 text-right mono text-sm ${s.cls}">${$.usd(s.usd,0)}</td>
+      <td class="py-2.5 text-right text-xs px-2">${savHtml}</td>
+      <td class="py-2.5 pl-3 w-28 hidden sm:table-cell">${barHTML(Math.max(s.usd/maxUsd*100,2), s.bar)}</td>
+    </tr>`;
+  }).join('');
+
+  const bookBadge = m.bookSource === 'historical'
+    ? `<span class="tag" style="background:rgba(16,185,129,0.1);color:#6ee7b7;border:1px solid rgba(16,185,129,0.2);font-size:9px">HISTORICAL BOOK</span>`
+    : m.bookFallback
+      ? `<span class="tag" style="background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid rgba(245,158,11,0.35);font-size:9px">⚠ LIVE (HYPERRPC FALLBACK)</span>`
+      : `<span class="tag tag-approx">CURRENT BOOK</span>`;
+  const cmpSub = m.bookSource === 'historical'
+    ? 'Market / TWAP simulations use the trade-time orderbook from HypeRPC — accurate conditions'
+    : m.bookFallback
+      ? 'HypeRPC orderbook configured but unavailable — fell back to live snapshot (less accurate)'
+      : 'Market / TWAP simulations use a live orderbook snapshot — not historical conditions';
+
+  return card(`
+    ${sh(`Strategy Comparison &nbsp;${bookBadge}`, cmpSub)}
+    <div class="overflow-x-auto">
+      <table class="w-full">
+        <thead><tr class="border-b border-white/[0.05]">
+          <th class="pb-2 text-left text-[11px] text-slate-600 font-medium">Strategy</th>
+          <th class="pb-2 text-right text-[11px] text-slate-600 font-medium">Bps</th>
+          <th class="pb-2 text-right text-[11px] text-slate-600 font-medium">USD cost</th>
+          <th class="pb-2 text-right text-[11px] text-slate-600 font-medium px-2">vs Actual</th>
+          <th class="pb-2 pl-3 text-[11px] text-slate-600 font-medium hidden sm:table-cell">Impact</th>
+        </tr></thead>
+        <tbody class="divide-y divide-white/[0.03]">${rows}</tbody>
+      </table>
+    </div>
+    <div class="mt-4 text-[11px] text-slate-600 space-y-1">
+      <div>TWAP: assumes full book replenishment between slices (best-case).</div>
+      <div>Limit: zero slippage + maker fee, but carries execution risk (partial fill, missed moves).</div>
+    </div>
+  `);
+}
+
+// ── Book Analysis ──────────────────────────────────────────────
+function buildBookAnalysis(m) {
+  const levels    = m.simFull.levels.slice(0, 10);
+  let cumNtl = 0;
+  const depthRows = levels.map((l, i) => {
+    cumNtl += l.notional;
+    const slip = i===0 ? 0 : Math.abs(l.px - levels[0].px) / levels[0].px * 100;
+    return `<tr class="cmp-row">
+      <td class="py-1.5 text-xs mono text-slate-500">${i+1}</td>
+      <td class="py-1.5 text-xs mono text-slate-200">${$.px(l.px)}</td>
+      <td class="py-1.5 text-xs mono text-slate-400">${$.usd(l.notional,0)}</td>
+      <td class="py-1.5 text-xs mono text-slate-500">${$.usd(cumNtl,0)}</td>
+      <td class="py-1.5 text-xs mono ${slip>0.1?'text-orange-400':'text-slate-600'}">${slip>0?'+':''}${slip.toFixed(3)}%</td>
+    </tr>`;
+  }).join('');
+
+  const twapCards = [
+    { label:'TWAP ×5',  d:m.twap5,  saving:m.allInUsd-m.t5Usd },
+    { label:'TWAP ×10', d:m.twap10, saving:m.allInUsd-m.t10Usd },
+    { label:'TWAP ×20', d:m.twap20, saving:m.allInUsd-m.t20Usd }
+  ];
+
+  const bookTitle = m.bookSource === 'historical'
+    ? `Historical Orderbook Analysis <span class="tag" style="background:rgba(16,185,129,0.1);color:#6ee7b7;border:1px solid rgba(16,185,129,0.2);font-size:9px;margin-left:6px">HISTORICAL</span>`
+    : m.bookFallback
+      ? `Orderbook Analysis <span class="tag" style="background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid rgba(245,158,11,0.35);font-size:9px;margin-left:6px">⚠ LIVE (HYPERRPC FALLBACK)</span>`
+      : `Orderbook Analysis <span class="tag tag-approx" style="margin-left:6px">CURRENT BOOK</span>`;
+  const bookSub  = m.bookSource === 'historical'
+    ? `${m.asset} book at trade time via HypeRPC — simulated ${m.isBuy?'buy':'sell'} of ${$.usd(m.totalNtl)}`
+    : `Current ${m.asset} book — simulated ${m.isBuy?'buy':'sell'} of ${$.usd(m.totalNtl)} at current market conditions`;
+  const bookNote = m.bookSource === 'historical'
+    ? `✓ This uses the <strong class="text-slate-400">trade-time</strong> orderbook snapshot from HypeRPC — conditions are accurate.`
+    : m.bookFallback
+      ? `⚠ HypeRPC orderbook was configured but returned no data — fell back to a <strong class="text-amber-400">live snapshot</strong>.
+        Check your <code class="font-mono text-xs text-slate-400">HYPERPC_ORDERBOOK</code> key and ensure it is an <em>orderbook</em>-type endpoint.`
+      : `⚠ This uses the <strong class="text-slate-500">current</strong> orderbook snapshot, not the book at time of the trade.
+        HyperCore does not expose historical book data via its public REST API.
+        Use as a directional estimate of market impact under similar conditions.`;
+
+  return card(`
+    ${sh(bookTitle, bookSub)}
+    <div class="grid grid-cols-3 gap-3 mb-5">
+      <div class="bg-white/[0.025] rounded-xl p-3">
+        <div class="text-xs text-slate-500 mb-1">Sim VWAP</div>
+        <div class="mono font-semibold text-sm">${$.px(m.simFull.vwap)}</div>
+        <div class="text-[10px] text-slate-600 mt-0.5">${$.bps(m.simFullBps)} vs arrival</div>
+      </div>
+      <div class="bg-white/[0.025] rounded-xl p-3">
+        <div class="text-xs text-slate-500 mb-1">Impact Cost</div>
+        <div class="mono font-semibold text-sm text-orange-400">${$.usd(m.simFullUsd,0)}</div>
+        <div class="text-[10px] text-slate-600 mt-0.5">${$.bps(m.simFullBps)}</div>
+      </div>
+      <div class="bg-white/[0.025] rounded-xl p-3">
+        <div class="text-xs text-slate-500 mb-1">Book Fill</div>
+        <div class="mono font-semibold text-sm ${m.simFull.shortfall>100?'text-red-400':'text-emerald-400'}">${m.simFull.fillPct.toFixed(1)}%</div>
+        ${m.simFull.shortfall>100?`<div class="text-[10px] text-red-500 mt-0.5">Shortfall: ${$.usd(m.simFull.shortfall,0)}</div>`:''}
+      </div>
+    </div>
+    <table class="w-full mb-5">
+      <thead><tr class="border-b border-white/[0.05]">
+        ${['#','Price','Notional','Cumulative','Slippage'].map(h=>`<th class="pb-2 text-left text-[11px] text-slate-600 font-medium">${h}</th>`).join('')}
+      </tr></thead>
+      <tbody class="divide-y divide-white/[0.03]">
+        ${depthRows}
+        ${m.simFull.levels.length>10?`<tr><td colspan="5" class="py-2 text-[11px] text-slate-600">…${m.simFull.levels.length-10} more levels consumed</td></tr>`:''}
+      </tbody>
+    </table>
+    <div class="grid grid-cols-3 gap-3">
+      ${twapCards.map(t=>`<div class="bg-white/[0.025] rounded-xl p-3">
+        <div class="text-xs text-slate-500 mb-1.5">${t.label} (${$.usd(t.d.sliceNtl,0)}/slice)</div>
+        <div class="mono text-sm font-semibold">${$.bps(t.d.sliceBps)}</div>
+        <div class="text-[10px] text-slate-600 mt-0.5">per slice impact</div>
+        <div class="text-xs ${t.saving>0?'text-emerald-400':'text-red-400'} mt-1.5">
+          ${t.saving>0?'↓ ':'↑ '}${$.usd(Math.abs(t.saving),0)} vs actual
+        </div>
+      </div>`).join('')}
+    </div>
+    <div class="mt-4 pt-4 border-t border-white/[0.04] text-[11px] text-slate-600">
+      ${bookNote}
+    </div>
+  `);
+}
+
+// ── Quote CTA ──────────────────────────────────────────────────
+function buildQuoteCTA(m) {
+  const items = [
+    { icon:'↔', label:'Spread savings',   note:'~70% via passive posting', val:m.spreadUsd*0.70 },
+    { icon:'📉', label:'Impact reduction', note:'~60% via adaptive TWAP',   val:m.walkUsd*0.60 },
+    { icon:'💰', label:'Fee improvement',  note:'maker vs taker tier',       val:m.totalNtl*FEE_DELTA }
+  ];
+  return `<div class="gradient-border-subtle rounded-2xl p-5 sm:p-6 relative overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-br from-sky-900/10 via-transparent to-violet-900/15 pointer-events-none"></div>
+    <div class="relative">
+      <div class="flex flex-wrap items-start justify-between gap-4 mb-5">
+        <div>
+          <div class="flex items-center gap-2 mb-1.5">
+            <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-sky-500 to-violet-600 flex items-center justify-center font-black text-xs">Q</div>
+            <span class="font-semibold text-white">Quote's Execution Estimate</span>
+            <span class="tag tag-info">ESTIMATED</span>
+          </div>
+          <p class="text-slate-400 text-xs leading-relaxed max-w-lg">
+            Quote routes large orders via adaptive TWAP + passive limit placement on Hyperliquid.
+            For a ${$.usd(m.totalNtl)} ${m.asset} ${m.side.toLowerCase()}:
+          </p>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <div class="rounded-xl p-3" style="background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.18)">
+          <div class="text-xs mb-1" style="color:rgba(56,189,248,0.7)">Estimated Savings</div>
+          <div class="text-2xl font-bold mono" style="color:#38bdf8">${$.usd(m.quoteSaved,0)}</div>
+        </div>
+        <div class="bg-white/[0.03] rounded-xl p-3">
+          <div class="text-xs text-slate-500 mb-1">In basis points</div>
+          <div class="text-lg font-semibold mono">${$.bps(m.allInBps - m.quoteBps)}</div>
+        </div>
+        <div class="bg-white/[0.03] rounded-xl p-3">
+          <div class="text-xs text-slate-500 mb-1">% of notional</div>
+          <div class="text-lg font-semibold mono">${$.pct(m.quoteSaved/m.totalNtl*100, 3)}</div>
+        </div>
+        <div class="bg-white/[0.03] rounded-xl p-3">
+          <div class="text-xs text-slate-500 mb-1">Residual cost</div>
+          <div class="text-lg font-semibold mono">${$.usd(m.quoteUsd,0)}</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-3 mb-5">
+        ${items.map(r=>`<div class="bg-white/[0.025] rounded-xl p-3">
+          <div class="text-lg mb-1">${r.icon}</div>
+          <div class="text-xs text-slate-500 mb-0.5">${r.label}</div>
+          <div class="text-[11px] text-slate-600 mb-1">${r.note}</div>
+          <div class="mono text-emerald-400 font-semibold text-sm">+${$.usd(r.val,0)}</div>
+        </div>`).join('')}
+      </div>
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div class="text-[11px] text-slate-600 max-w-sm">
+          Conservative estimate: 60% impact reduction via TWAP, 70% spread savings via limit posting,
+          maker fee tier. Actual results vary. Not financial advice.
+        </div>
+        <a href="https://quote.xyz" target="_blank" rel="noopener"
+           class="px-5 py-2.5 bg-gradient-to-r from-sky-600 to-violet-600 hover:from-sky-500 hover:to-violet-500 rounded-xl text-sm font-semibold whitespace-nowrap transition-all shrink-0">
+          Start using Quote →
+        </a>
+      </div>
+    </div>
+  </div>`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  MAIN FLOW
+// ═══════════════════════════════════════════════════════════════
+function setLoading(on, msg='') {
+  document.getElementById('ui-loading').classList.toggle('hidden', !on);
+  if (msg) document.getElementById('ui-loading-msg').textContent = msg;
+  document.getElementById('btn-analyze').disabled = on;
+  if (on) document.getElementById('ui-error').classList.add('hidden');
+}
+function showErr(msg) {
+  const el = document.getElementById('ui-error');
+  el.textContent = '⚠ ' + msg;
+  el.classList.remove('hidden');
+  setLoading(false);
+}
+
+async function analyze() {
+  const address = document.getElementById('inp-address').value.trim();
+  const txHash  = document.getElementById('inp-txhash').value.trim();
+
+  if (!address) return showErr('Wallet address is required.');
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return showErr('Invalid address — must be 0x + 40 hex chars.');
+  if (!txHash)  return showErr('Transaction hash is required.');
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) return showErr('Invalid tx hash — must be 0x + 64 hex chars.');
+
+  document.getElementById('ui-results').classList.add('hidden');
+  document.getElementById('ui-results').innerHTML = '';
+
+  try {
+    // 1. Fetch all fills for address
+    setLoading(true, 'Fetching fill history...');
+    const allFills = await hlPost({ type: 'userFills', user: address });
+    if (!Array.isArray(allFills) || allFills.length === 0)
+      throw new Error('No fills found for this address. Verify the wallet is correct.');
+
+    // 2. Match fills by tx hash
+    setLoading(true, `Found ${allFills.length} fills — matching transaction...`);
+    const matched = findFillsByHash(allFills, txHash);
+    if (matched.length === 0) {
+      // Helpful diagnostic
+      const coins = [...new Set(allFills.slice(0,5).map(f=>f.coin))].join(', ');
+      throw new Error(
+        `Transaction hash not found in this wallet's fills. ` +
+        `Recent assets traded: ${coins}. ` +
+        `Make sure the hash is a HyperCore action hash (from the Hyperliquid explorer), ` +
+        `not an EVM transaction.`
+      );
+    }
+
+    const order = summariseOrder(matched);
+    const coin  = order.coin;
+
+    // 3. Parallel: historical book (if configured) + live book + market meta + candle
+    setLoading(true, `Fetching ${coin} orderbook, candle data & market context...`);
+    const tradeTime = order.firstFill.time;
+    const [histBook, liveBook, metaResp, candle] = await Promise.all([
+      fetchHistoricalBook(coin, tradeTime),
+      hlPost({ type: 'l2Book', coin }),
+      hlPost({ type: 'metaAndAssetCtxs' }),
+      fetchCandleAt(coin, tradeTime)
+    ]);
+
+    // Prefer the historical book (trade-time accuracy); fall back to live snapshot
+    const usedHistBook = !!(histBook?.levels?.[0]?.length && histBook?.levels?.[1]?.length);
+    const book         = usedHistBook ? histBook : liveBook;
+    const bookSource   = usedHistBook ? 'historical' : 'live';
+    // Flag: HypeRPC was configured but didn't return a valid historical book
+    const bookFallback = !!HYPERPC_ORDERBOOK && !usedHistBook;
+
+    const [meta, assetCtxs] = metaResp;
+    const coinIdx  = meta.universe.findIndex(u => u.name === coin);
+    const assetCtx = coinIdx >= 0 ? assetCtxs[coinIdx] : null;
+
+    if (!book.levels || !book.levels[0]?.length || !book.levels[1]?.length)
+      throw new Error(`Could not fetch orderbook for ${coin}.`);
+
+    // 4. Calculate + render
+    setLoading(true, 'Computing execution quality metrics...');
+    const metrics = calcMetrics(order, book, bookSource, bookFallback, candle, assetCtx);
+    setLoading(false);
+    renderResults(metrics);
+
+  } catch (err) {
+    console.error('[Quote Analyzer]', err);
+    showErr(err.message || 'Unexpected error — check browser console.');
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') analyze();
+});
+</script>
+</body>
+</html>
