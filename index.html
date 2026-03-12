@@ -328,7 +328,7 @@ function getSpread(book) {
 // ═══════════════════════════════════════════════════════════════
 //  METRICS  — what's exact vs approximate is clearly flagged
 // ═══════════════════════════════════════════════════════════════
-function calcMetrics(order, book, bookSource, bookFallback, candle, assetCtx) {
+function calcMetrics(order, book, bookSource, bookFallback, candle, execCandle, assetCtx) {
   const isBuy = order.side === 'B';
   const sp    = getSpread(book);
   const firstPx = parseFloat(order.firstFill.px);
@@ -429,11 +429,29 @@ function calcMetrics(order, book, bookSource, bookFallback, candle, assetCtx) {
   const quoteUsd   = Math.max(allInUsd - quoteSaved, limitUsd);
   const quoteBps   = (quoteUsd / order.totalNtl) * 10000;
 
+  // ── TWAP ×60 (~1 h equivalent, 60 slices) ──────────────────────
+  const twap60  = simTwap(book, isBuy, order.totalNtl, 60);
+  const t60Usd  = twap60.totalCostUsd + order.totalNtl * FEE_TAKER;
+  const t60Bps  = twap60.sliceBps     + FEE_TAKER * 10000;
+
+  // ── VS Period VWAP ──────────────────────────────────────────────
+  // Compares fill VWAP to OHLC4 of the execution-window candle — a proxy for
+  // the market's average traded price during the same minute.
+  let vsVwapBps = null, vsVwapUsd = null, periodVwap = null;
+  if (execCandle) {
+    periodVwap = execCandle.vwap;  // (O+H+L+C)/4
+    const vsVwapPerUnit = isBuy
+      ? order.vwap - periodVwap   // positive = paid above market avg (bad)
+      : periodVwap - order.vwap;  // positive = sold below market avg (bad)
+    vsVwapBps = vsVwapPerUnit / periodVwap * 10000;
+    vsVwapUsd = (vsVwapBps / 10000) * refNotional;
+  }
+
   // ── Market context ─────────────────────────────────────────────
   const dayVol = assetCtx ? parseFloat(assetCtx.dayNtlVlm || 0) : 0;
   const volPct = dayVol > 0 ? (order.totalNtl / dayVol) * 100 : null;
 
-  const score = scoreExecution(slipBps, order.takerPct, volPct);
+  const execScore = computeExecScore(allInBps, order.takerPct, volPct);
 
   return {
     // Identity
@@ -446,37 +464,57 @@ function calcMetrics(order, book, bookSource, bookFallback, candle, assetCtx) {
     takerPct: order.takerPct, execTimeMs: order.firstFill.time,
     hashes: order.hashes,
     // Reference
-    refPrice, refSource, candle,
+    refPrice, refSource, candle, execCandle,
     // Live market
     spread: sp, currentMid: sp.mid, dayVol, volPct,
     // EXACT cost components
     walkUsd, walkBps, feeUsd, feeBps,
     // APPROXIMATE cost components
-    driftUsd, driftBps,           // pre-fill price drift (candle close → first fill)
-    spreadUsd, spreadBps,         // true spread cost (½ live spread × taker fraction)
+    driftUsd, driftBps,
+    spreadUsd, spreadBps,
     slipUsd, slipBps, allInUsd, allInBps,
+    // VS Period VWAP
+    vsVwapBps, vsVwapUsd, periodVwap,
     // Simulations (current book)
     simFull, simFullBps, simFullUsd,
-    twap5, twap10, twap20,
+    twap5, twap10, twap20, twap60,
     mktNowUsd, mktNowBps,
-    t5Usd, t5Bps, t10Usd, t10Bps, t20Usd, t20Bps,
+    t5Usd, t5Bps, t10Usd, t10Bps, t20Usd, t20Bps, t60Usd, t60Bps,
     limitUsd, limitBps,
     // Quote
     quoteSaved, quoteUsd, quoteBps,
-    score
+    execScore
   };
 }
 
-function scoreExecution(slipBps, takerPct, volPct) {
-  let g = slipBps < 2 ? 'A' : slipBps < 5 ? 'B' : slipBps < 12 ? 'C' : slipBps < 25 ? 'D' : 'F';
-  if (takerPct >= 95 && volPct !== null && volPct > 0.5)
-    g = { A:'B', B:'C', C:'D', D:'F', F:'F' }[g];
+// Fetch the 1-min candle that CONTAINS the trade (i.e. the execution window candle).
+// Used for VS Period VWAP: OHLC4 of this candle ≈ market VWAP during execution.
+async function fetchExecCandle(coin, tradeTime) {
+  const start = tradeTime - 60000;
+  const end   = tradeTime + 60000;
+  const candles = await hlPost({
+    type: 'candleSnapshot',
+    req: { coin, interval: '1m', startTime: start, endTime: end }
+  });
+  if (!Array.isArray(candles) || candles.length === 0) return null;
+  // Find candle whose open time T satisfies: T <= tradeTime < T + 60000
+  const match = candles.find(c => c.T <= tradeTime && tradeTime < c.T + 60000);
+  const c = match || candles[0];
   return {
-    grade: g,
-    desc: { A:'Excellent — near-optimal execution', B:'Good — minor room for improvement',
-            C:'Average — meaningful costs left on the table',
-            D:'Poor — significant execution losses', F:'Very Poor — major execution inefficiency' }[g]
+    open:  parseFloat(c.o), high: parseFloat(c.h),
+    low:   parseFloat(c.l), close: parseFloat(c.c), time: c.T,
+    vwap:  (parseFloat(c.o) + parseFloat(c.h) + parseFloat(c.l) + parseFloat(c.c)) / 4
   };
+}
+
+// 0–100 numeric execution score. Higher = better.
+function computeExecScore(allInBps, takerPct, volPct) {
+  let score = Math.max(0, Math.round(100 - allInBps * 5));
+  if (takerPct >= 95 && volPct !== null && volPct > 0.5)
+    score = Math.max(0, score - 15);
+  const label = score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : score >= 50 ? 'Fair' : score >= 25 ? 'Poor' : 'Very Poor';
+  const col   = score >= 90 ? '#34d399' : score >= 75 ? '#a3e635' : score >= 50 ? '#fbbf24' : score >= 25 ? '#fb923c' : '#f87171';
+  return { score, label, col };
 }
 
 
@@ -516,8 +554,8 @@ function renderResults(m) {
   const el = document.getElementById('ui-results');
   el.innerHTML = '';
   el.classList.remove('hidden');
-  [buildSummary(m), buildScore(m), buildCostBreakdown(m),
-   buildComparison(m), buildBookAnalysis(m), buildQuoteCTA(m)
+  [buildHeroMetrics(m), buildSummary(m), buildCostInsight(m),
+   buildComparison(m), buildCostBreakdown(m), buildBookAnalysis(m), buildQuoteCTA(m)
   ].forEach((html, i) => {
     const d = document.createElement('div');
     d.innerHTML = html;
@@ -533,6 +571,148 @@ function card(body) { return `<div class="glass rounded-2xl p-5 sm:p-6">${body}<
 function sh(title, sub='') {
   return `<div class="mb-4"><div class="text-sm font-semibold text-slate-200">${title}</div>
     ${sub ? `<div class="text-xs text-slate-500 mt-0.5">${sub}</div>` : ''}</div>`;
+}
+
+// ── Hero Metrics (4 cards) ──────────────────────────────────────
+function buildHeroMetrics(m) {
+  const es = m.execScore;
+
+  // SVG circular gauge
+  const R = 38, CX = 44, CY = 44, THICK = 7;
+  const circ = 2 * Math.PI * R;
+  const dashOffset = (circ * (1 - es.score / 100)).toFixed(2);
+  const gauge = `<svg width="88" height="88" viewBox="0 0 88 88">
+    <circle cx="${CX}" cy="${CY}" r="${R}" fill="none"
+      stroke="rgba(255,255,255,0.06)" stroke-width="${THICK}"/>
+    <circle cx="${CX}" cy="${CY}" r="${R}" fill="none"
+      stroke="${es.col}" stroke-width="${THICK}" stroke-linecap="round"
+      stroke-dasharray="${circ.toFixed(2)}" stroke-dashoffset="${dashOffset}"
+      transform="rotate(-90 ${CX} ${CY})"/>
+    <text x="${CX}" y="${CY + 8}" text-anchor="middle"
+      font-family="JetBrains Mono,monospace" font-size="22" font-weight="700"
+      fill="${es.col}">${es.score}</text>
+  </svg>`;
+
+  const metCard = (label, valBps, valUsd, note, noteTag='') => {
+    if (valBps === null) {
+      return `<div class="glass rounded-2xl p-5 flex flex-col">
+        <div class="text-xs text-slate-500 font-medium mb-3">${label} ${noteTag}</div>
+        <div class="text-slate-500 text-lg font-medium flex-1 flex items-center">N/A</div>
+        <div class="text-[10px] text-slate-600 mt-3 leading-relaxed">${note}</div>
+      </div>`;
+    }
+    const isSave = valBps < -0.05;
+    const col = isSave ? '#34d399'
+      : valBps > 20 ? '#f87171'
+      : valBps > 8  ? '#fb923c'
+      : valBps > 3  ? '#fbbf24'
+      : '#94a3b8';
+    const bpsHtml = isSave
+      ? `<span class="mono text-2xl font-bold" style="color:${col}">${$.bps(valBps)}</span>
+         <span class="text-sm ml-1.5 font-medium" style="color:${col}">saved</span>`
+      : `<span class="mono text-2xl font-bold" style="color:${col}">+${$.bps(valBps)}</span>`;
+    const usdHtml = isSave
+      ? `<div class="mono text-sm mt-1" style="color:${col}">+${$.usd(Math.abs(valUsd),0)} vs ref</div>`
+      : `<div class="mono text-sm mt-1 text-slate-400">−${$.usd(Math.abs(valUsd),0)}</div>`;
+    return `<div class="glass rounded-2xl p-5 flex flex-col">
+      <div class="text-xs text-slate-500 font-medium mb-3">${label} ${noteTag}</div>
+      <div>${bpsHtml}</div>
+      ${usdHtml}
+      <div class="text-[10px] text-slate-600 mt-auto pt-3 leading-relaxed">${note}</div>
+    </div>`;
+  };
+
+  const isNote = m.refSource === 'candleClose'
+    ? `Fill VWAP vs last closed 1-min candle`
+    : `Fill VWAP vs estimated mid at trade time`;
+  const vwapNote = m.execCandle
+    ? `Fill VWAP vs OHLC4 of execution candle`
+    : `Execution candle unavailable`;
+
+  return `<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+    <div class="glass rounded-2xl p-5 flex flex-col items-center justify-center text-center">
+      <div class="text-xs text-slate-500 font-medium mb-2">Execution Score</div>
+      ${gauge}
+      <div class="text-sm font-semibold mt-2" style="color:${es.col}">${es.label}</div>
+      <div class="text-[10px] text-slate-600 mt-1">0 = worst · 100 = perfect</div>
+    </div>
+    ${metCard('Implementation Shortfall', m.slipBps, m.slipUsd, isNote, approxTag())}
+    ${metCard('VS Period VWAP', m.vsVwapBps, m.vsVwapUsd, vwapNote, m.execCandle ? approxTag() : '')}
+    ${metCard('All-in Execution Cost', m.allInBps, m.allInUsd, 'Slippage + fees vs reference', approxTag())}
+  </div>`;
+}
+
+// ── Cost Insight ────────────────────────────────────────────────
+function buildCostInsight(m) {
+  const feeBps   = m.feeBps;
+  const totalBps = m.allInBps;
+
+  if (totalBps <= 0) {
+    return card(`
+      ${sh('Cost Breakdown', 'Where your execution cost went')}
+      <div class="flex items-center gap-3 p-4 rounded-xl" style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2)">
+        <div class="text-2xl">✓</div>
+        <div>
+          <div class="font-semibold text-sm" style="color:#34d399">Price improvement — net gain vs reference</div>
+          <div class="text-slate-400 text-xs mt-0.5">
+            Fees: ${$.bps(feeBps)} · Net result: ${$.bps(totalBps)} (${$.usd(Math.abs(m.allInUsd),0)} ahead of reference).
+            Likely a maker or limit-order fill that crossed at a favorable price.
+          </div>
+        </div>
+      </div>
+    `);
+  }
+
+  const nonFeeBps = totalBps - feeBps;
+  const multiple  = (nonFeeBps > 0.5 && feeBps > 0)
+    ? (nonFeeBps / feeBps).toFixed(1) : null;
+
+  // Build stacked bar from positive cost components only
+  const parts = [
+    { bps: Math.max(m.driftBps,  0), col: '#d97706', label: 'Pre-fill drift' },
+    { bps: Math.max(m.spreadBps, 0), col: '#b45309', label: 'Spread cost'    },
+    { bps: Math.max(m.walkBps,   0), col: '#ea580c', label: 'Book-walk'      },
+    { bps: Math.max(feeBps,      0), col: '#0284c7', label: 'Fees'           }
+  ];
+  const barTotal = parts.reduce((s, p) => s + p.bps, 0) || 1;
+
+  const barSegs = parts.map(p => {
+    const w = (p.bps / barTotal * 100).toFixed(1);
+    return `<div style="width:${w}%;background:${p.col}"
+      class="h-full flex items-center justify-center text-[10px] font-semibold text-white/80"
+      title="${p.label}: ${$.bps(p.bps)}">${parseFloat(w) > 13 ? p.label : ''}</div>`;
+  }).join('');
+
+  const legendItems = parts.filter(p => p.bps > 0.05).map(p =>
+    `<div class="flex items-center gap-1.5">
+       <div class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:${p.col}"></div>
+       <span class="text-slate-400">${p.label}: <span class="mono text-slate-300">${$.bps(p.bps)}</span></span>
+     </div>`
+  ).join('');
+
+  return card(`
+    ${sh('Cost Breakdown', 'Fees are only a fraction of your true execution cost')}
+    ${multiple ? `
+    <div class="flex items-start gap-4 mb-5 p-4 rounded-xl" style="background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25)">
+      <div class="shrink-0 text-center min-w-[64px]">
+        <div class="text-3xl font-black mono text-orange-400">${multiple}×</div>
+        <div class="text-[10px] text-slate-500 mt-0.5">more than fees</div>
+      </div>
+      <div class="text-sm text-slate-400 leading-relaxed">
+        Market impact &amp; spread cost <strong class="text-slate-200">${$.bps(nonFeeBps)}</strong> —
+        <strong class="text-slate-200">${multiple}×</strong> more than the
+        <strong class="text-slate-200">${$.bps(feeBps)}</strong> paid in fees.
+        <span class="text-slate-500">This is the hidden cost that never appears in a fee report.</span>
+      </div>
+    </div>` : ''}
+    <div class="h-8 rounded-xl overflow-hidden flex mb-3">${barSegs}</div>
+    <div class="flex flex-wrap gap-x-5 gap-y-1.5 text-[11px] mb-4">${legendItems}</div>
+    <div class="text-[11px] text-slate-600 leading-relaxed">
+      Pre-fill drift, spread crossing, and book-walk are the largest execution costs —
+      they show up as slippage, never as fee line items. The only way to reduce them:
+      smaller order slices, passive limit posting, or algorithmic routing.
+    </div>
+  `);
 }
 
 // ── Summary ────────────────────────────────────────────────────
@@ -594,63 +774,6 @@ function buildSummary(m) {
         <div class="${x.mono?'mono':''} text-sm font-medium">${x.v}</div>
         <div class="text-[10px] text-slate-600 mt-0.5">${x.sub}</div>
       </div>`).join('')}
-    </div>
-  `);
-}
-
-// ── Score ──────────────────────────────────────────────────────
-function buildScore(m) {
-  const gc = {
-    A:{t:'text-emerald-400',bg:'bg-emerald-400/10 border border-emerald-400/30'},
-    B:{t:'text-lime-400',   bg:'bg-lime-400/10 border border-lime-400/30'},
-    C:{t:'text-amber-400',  bg:'bg-amber-400/10 border border-amber-400/30'},
-    D:{t:'text-orange-400', bg:'bg-orange-400/10 border border-orange-400/30'},
-    F:{t:'text-red-400',    bg:'bg-red-400/10 border border-red-400/30'}
-  };
-  const c = gc[m.score.grade];
-
-  const metRow = (label, usd, bps, tag, maxBps=30, barCls='bg-orange-500') => {
-    const isImp = bps < -0.05; // price improvement
-    const col   = isImp ? 'text-emerald-400' : bps>20?'text-red-400':bps>8?'text-orange-400':'text-slate-300';
-    const bpsTxt = isImp
-      ? `<span class="text-emerald-400">${$.bps(bps)} <span class="text-[10px]">saved</span></span>`
-      : `<span class="mono ${col}">${$.bps(bps)}</span>`;
-    const usdTxt = isImp
-      ? `<span class="mono text-emerald-400/70">+${$.usd(Math.abs(usd),0)}</span>`
-      : `<span class="mono text-slate-500">${$.usd(usd,0)}</span>`;
-    return `<div>
-      <div class="flex justify-between text-xs mb-1">
-        <span class="text-slate-400 flex items-center gap-1.5">${label} ${tag}</span>
-        <div class="flex gap-3">${bpsTxt}${usdTxt}</div>
-      </div>
-      ${barHTML(Math.min(Math.max((bps/maxBps)*100, 0), 100), isImp ? 'bg-emerald-500/40' : barCls)}
-    </div>`;
-  };
-
-  return card(`
-    <div class="flex flex-col sm:flex-row items-start sm:items-center gap-5">
-      <div class="shrink-0">
-        <div class="w-20 h-20 rounded-2xl ${c.bg} flex items-center justify-center">
-          <div class="text-4xl font-black ${c.t}">${m.score.grade}</div>
-        </div>
-        <div class="text-center text-[11px] text-slate-500 mt-1.5">Execution Grade</div>
-      </div>
-      <div class="flex-1 w-full">
-        <div class="text-slate-200 font-medium mb-0.5">${m.score.desc}</div>
-        <div class="text-slate-500 text-xs mb-4">
-          Total slippage vs reference:
-          <span class="mono ${m.slipBps<0?'text-emerald-400':'text-slate-300'}">${$.bps(m.slipBps)}</span>
-          (<span class="mono ${m.slipBps<0?'text-emerald-400':m.slipUsd>2000?'text-red-400':m.slipUsd>500?'text-orange-400':'text-amber-400'}">
-            ${m.slipUsd<0?'+'+$.usd(Math.abs(m.slipUsd),0)+' saved':$.usd(m.slipUsd,0)}
-          </span>)
-        </div>
-        <div class="space-y-3">
-          ${metRow('Pre-fill drift', m.driftUsd, m.driftBps, approxTag(), 15, 'bg-amber-500')}
-          ${metRow('Spread cost', m.spreadUsd, m.spreadBps, approxTag(), 5, 'bg-yellow-600/60')}
-          ${metRow('Book-walk impact', m.walkUsd, m.walkBps, exactTag(), 40, 'bg-orange-500')}
-          ${metRow('Taker fees', m.feeUsd, m.feeBps, exactTag(), 10, 'bg-sky-500/60')}
-        </div>
-      </div>
     </div>
   `);
 }
@@ -723,13 +846,14 @@ function buildCostBreakdown(m) {
 function buildComparison(m) {
   const bookLabel = m.bookSource === 'historical' ? 'trade-time book' : 'current book';
   const strats = [
-    { name:'This execution (actual)', bps:m.allInBps,  usd:m.allInUsd,  cls:'text-orange-400 font-semibold', bar:'bg-orange-500', actual:true },
-    { name:'Market order',            bps:m.mktNowBps, usd:m.mktNowUsd, cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
-    { name:'TWAP ×5 slices',          bps:m.t5Bps,     usd:m.t5Usd,     cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
-    { name:'TWAP ×10 slices',         bps:m.t10Bps,    usd:m.t10Usd,    cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
-    { name:'TWAP ×20 slices',         bps:m.t20Bps,    usd:m.t20Usd,    cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
+    { name:'This execution (actual)',  bps:m.allInBps,  usd:m.allInUsd,  cls:'text-orange-400 font-semibold', bar:'bg-orange-500',  actual:true },
+    { name:'Market order (all-at-once)', bps:m.mktNowBps, usd:m.mktNowUsd, cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
+    { name:'TWAP ×5  (~5 min)',        bps:m.t5Bps,     usd:m.t5Usd,     cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
+    { name:'TWAP ×10 (~10 min)',       bps:m.t10Bps,    usd:m.t10Usd,    cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
+    { name:'TWAP ×20 (~20 min)',       bps:m.t20Bps,    usd:m.t20Usd,    cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
+    { name:'TWAP ×60 (~1 h)',          bps:m.t60Bps,    usd:m.t60Usd,    cls:'text-slate-300', bar:'bg-slate-600', note:bookLabel },
     { name:'Passive limit order',      bps:m.limitBps,  usd:m.limitUsd,  cls:'text-slate-300', bar:'bg-slate-600', note:'execution risk' },
-    { name:'⚡ Quote execution',       bps:m.quoteBps,  usd:m.quoteUsd,  cls:'text-sky-300 font-semibold',  bar:'bg-sky-500', quote:true }
+    { name:'⚡ Quote execution',       bps:m.quoteBps,  usd:m.quoteUsd,  cls:'text-sky-300 font-semibold',  bar:'bg-sky-500',  quote:true }
   ];
   const maxUsd  = Math.max(...strats.map(s=>s.usd));
   const best    = strats.filter(s=>!s.actual).reduce((b,s)=>s.usd<b.usd?s:b);
@@ -991,11 +1115,12 @@ async function analyze() {
     // 3. Parallel: historical book (if configured) + live book + market meta + candle
     setLoading(true, `Fetching ${coin} orderbook, candle data & market context...`);
     const tradeTime = order.firstFill.time;
-    const [histBook, liveBook, metaResp, candle] = await Promise.all([
+    const [histBook, liveBook, metaResp, candle, execCandle] = await Promise.all([
       fetchHistoricalBook(coin, tradeTime),
       hlPost({ type: 'l2Book', coin }),
       hlPost({ type: 'metaAndAssetCtxs' }),
-      fetchCandleAt(coin, tradeTime)
+      fetchCandleAt(coin, tradeTime),
+      fetchExecCandle(coin, tradeTime)
     ]);
 
     // Prefer the historical book (trade-time accuracy); fall back to live snapshot
@@ -1014,7 +1139,7 @@ async function analyze() {
 
     // 4. Calculate + render
     setLoading(true, 'Computing execution quality metrics...');
-    const metrics = calcMetrics(order, book, bookSource, bookFallback, candle, assetCtx);
+    const metrics = calcMetrics(order, book, bookSource, bookFallback, candle, execCandle, assetCtx);
     setLoading(false);
     renderResults(metrics);
 
