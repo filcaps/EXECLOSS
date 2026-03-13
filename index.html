@@ -7,7 +7,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
-    * { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; box-sizing: border-box; }
+    /* Helvetica World is a system/installed font — falls back to Helvetica Neue on systems without it */
+    * { font-family: 'Helvetica World', 'Helvetica Neue', Helvetica, Arial, sans-serif; box-sizing: border-box; }
     .mono { font-family: 'JetBrains Mono', monospace; }
     body {
       background: #030908;
@@ -596,7 +597,7 @@ function buildHeroMetrics(m) {
       stroke-dasharray="${circ.toFixed(2)}" stroke-dashoffset="${dashOffset}"
       transform="rotate(-90 ${CX} ${CY})"/>
     <text x="${CX}" y="${CY + 10}" text-anchor="middle"
-      font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="800"
+      font-family="Helvetica World,Helvetica Neue,Helvetica,Arial,sans-serif" font-size="28" font-weight="800"
       fill="${es.col}">${es.grade}</text>
   </svg>`;
 
